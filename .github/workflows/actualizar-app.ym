@@ -1,0 +1,58 @@
+name: Actualizar Firebase en Nuevo Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar Firebase Admin
+        run: npm install firebase-admin
+
+      - name: Actualizar Firestore con la nueva versión
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          cat << 'EOF' > update-script.js
+          const admin = require('firebase-admin');
+          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          
+          // Inicializar Firebase
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+          });
+          
+          const db = admin.firestore();
+          
+          async function updateDb() {
+            try {
+              // Actualizamos el documento en la colección "configuracion", documento "app"
+              await db.collection('configuracion').doc('app').set({
+                versionActual: process.env.TAG_NAME,
+                urlActualizacion: process.env.RELEASE_URL,
+                fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
+              }, { merge: true });
+              
+              console.log(`¡Éxito! Firestore actualizado a la versión ${process.env.TAG_NAME}.`);
+            } catch (error) {
+              console.error('Error al actualizar Firestore:', error);
+              process.exit(1); // Falla el paso si hay error
+            }
+          }
+          
+          updateDb();
+          EOF
+          
+          node update-script.js

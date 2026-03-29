@@ -1,8 +1,28 @@
+name: Actualizar Firebase en Nuevo Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar Firebase Admin
+        run: npm install firebase-admin
+
       - name: Actualizar Firestore con la nueva versión
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           TAG_NAME: ${{ github.event.release.tag_name }}
-          # Usamos JSON para pasar toda la info del release y procesarla en JS
           RELEASE_DATA: ${{ toJson(github.event.release) }}
         run: |
           cat << 'EOF' > update-script.js
@@ -18,32 +38,29 @@
           
           async function updateDb() {
             try {
-              // 1. Buscamos el APK dentro de los "assets" del release
+              // Buscar el APK en los archivos del release
               const apkAsset = release.assets.find(asset => asset.name.endsWith('.apk'));
               
-              const datosActualizacion = {
-                versionActual: process.env.TAG_NAME.replace(/^v/, ''), // Quita la 'v' si existe
+              const datos = {
+                versionActual: process.env.TAG_NAME.replace(/^v/, ''),
                 fechaPublicacion: release.published_at, // Fecha de GitHub
-                servidorActualizadoEn: admin.firestore.FieldValue.serverTimestamp(), // Fecha de Firestore
+                servidorActualizadoEn: admin.firestore.FieldValue.serverTimestamp(),
                 notasVersion: release.body || "Mejoras generales"
               };
 
-              // 2. Si encontró un APK, guardamos su nombre y el link DIRECTO
               if (apkAsset) {
-                datosActualizacion.nombreApk = apkAsset.name;
-                datosActualizacion.urlActualizacion = apkAsset.browser_download_url;
-                console.log(`Encontrado APK: ${apkAsset.name}`);
+                datos.nombreApk = apkAsset.name; // Nombre del archivo (ej: Stok IA.apk)
+                datos.urlActualizacion = apkAsset.browser_download_url; // Link directo
+                console.log("APK encontrada:", apkAsset.name);
               } else {
-                // Si no hay APK, guardamos el link de la página por lo menos
-                datosActualizacion.urlActualizacion = release.html_url;
-                console.log("No se encontró archivo APK en el release, usando link de página.");
+                datos.urlActualizacion = release.html_url;
+                console.log("No se encontró APK, usando link de página.");
               }
               
-              await db.collection('configuracion').doc('app').set(datosActualizacion, { merge: true });
-              
-              console.log(`¡Éxito! Firestore actualizado a la versión ${process.env.TAG_NAME}.`);
+              await db.collection('configuracion').doc('app').set(datos, { merge: true });
+              console.log("¡Firestore actualizado correctamente!");
             } catch (error) {
-              console.error('Error al actualizar Firestore:', error);
+              console.error('Error:', error);
               process.exit(1);
             }
           }
